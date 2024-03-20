@@ -40,6 +40,23 @@ imapServer = config['DEFAULT']['server']
 imapUsername = config['DEFAULT']['username']
 imapPassword = config['DEFAULT']['password']
 
+# Message class
+class EmailMessage:
+    def __init__(self, message):
+        # Initial parse
+        self.date = str(message[b'INTERNALDATE']).replace(":", "")
+        self.RFC822 = str(message[b'RFC822'])[2:-1].replace("\\n","\n").replace("\\r", "")
+        # Parse RFC822
+        MessageRFC822Lines = self.RFC822.split("\n")
+        for line in MessageRFC822Lines:
+            if "To: " in line and not hasattr(self, 'recipient'):
+                self.recipient = line.replace("To: ", "", 1)
+            elif "From: " in line and not hasattr(self, 'sender'):
+                self.sender = line.replace("From: ", "", 1)
+            elif "Subject: " in line and not hasattr(self, 'subject'):
+                self.subject = line.replace("Subject: ", "", 1)
+            continue
+
 # Main method
 def main():
     # Connect to IMAP server
@@ -78,33 +95,18 @@ def main():
         
         # For each message
         for message in tqdm(messages, folderName):
-            try:
-                # Fetch the message by ID
-                message = server.fetch(message, ['RFC822', 'INTERNALDATE', 'ENVELOPE']).values()
-                
-                # Get message attributes from INTERNALDATE and the ENVELOPE object
-                msgDate = str(message[b'INTERNALDATE']).replace(":", "")
-                ENVELOPE = message[b'ENVELOPE']
-                msgSenderName = ENVELOPE.from_[0].name.decode() if ENVELOPE.from_[0].name else ""
-                msgSenderAddr = ENVELOPE.from_[0].mailbox.decode() + "@" + ENVELOPE.from_[0].host.decode() if ENVELOPE.from_[0].host else "none"
-                msgRecipientName = ENVELOPE.to[0].name.decode() if ENVELOPE.to[0].name else ""
-                msgRecipientAddr = ENVELOPE.to[0].mailbox.decode() + "@" + ENVELOPE.to[0].host.decode() if ENVELOPE.to[0].host else "none"
-                msgSubject = ENVELOPE.subject.decode()
+            # Fetch the message by ID and instantiate a new EmailMessage object from it
+            message = EmailMessage(list(server.fetch(message, ['RFC822', 'INTERNALDATE']).values())[0])
 
-                # Create a filename
-                fileName = f"{msgSubject} FROM {msgSenderName} ({msgSenderAddr}) TO {msgRecipientName} ({msgRecipientAddr}) [{msgDate}].eml"
-                fileName = re.sub(r"[/\\?%*:|\"<>\x7F\x00-\x1F]", "-", fileName)
-                outputFileName = f"./output/{folderName}/{fileName}"
-
-                # Parse RFC822 standard message
-                MessageRFC822 = str(message[b'RFC822'])[2:-1].replace("\\n","\n").replace("\\r", "")
-
-                # Write into output file
-                with open(outputFileName, "w") as file:
-                    file.writelines(MessageRFC822)
-                    file.flush()
-            except Exception as e:
-                continue
+            # Create a filename
+            fileName = f"{message.subject if len(message.subject) < 50 else message.subject[0:50] + '...'} [{message.date}].eml"
+            fileName = re.sub(r"[/\\?%*:|\"<>\x7F\x00-\x1F]", "-", fileName)
+            outputFileName = f"./output/{folderName}/{fileName}"
+            
+            # Write into output file
+            with open(outputFileName, "w") as file:
+                file.writelines(message.RFC822)
+                file.flush()
 
 if __name__ == "__main__":
     main()
